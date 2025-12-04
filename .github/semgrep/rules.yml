@@ -5,7 +5,6 @@
 #    python -m pip install --upgrade pip
 #    pip install semgrep
 #    semgrep --config .github/semgrep/rules.yml --json --output semgrep-report.json .
-#    # abrir/inspecionar semgrep-report.json ou usar semgrep --config .github/semgrep/rules.yml .
 # 3) Ver resultados no GitHub: Repositório -> Actions -> semgrep-scan -> selecionar run -> Artifacts -> semgrep-report
 # 4) Para execução manual via GitHub UI, adicione `workflow_dispatch:` ao arquivo .github/workflows/pipeline.yaml
 
@@ -18,6 +17,54 @@ rules:
     metadata:
       category: secrets
 
+  - id: hardcoded-secret-generic
+    message: "Hardcoded secret/token detected (padrão genérico)"
+    languages: [python, javascript, java, php, ruby, go]
+    severity: ERROR
+    pattern-regex: (?i)(api[_-]?key|secret|token)\s*[:=]\s*["']?[A-Za-z0-9\-\._=]{16,}["']?
+    metadata:
+      category: secrets
+
+  - id: aws-access-key
+    message: "AWS Access Key ID hardcoded (AKIA...)"
+    languages: [python, javascript, java, ruby, go]
+    severity: ERROR
+    pattern-regex: AKIA[0-9A-Z]{16}
+    metadata:
+      category: secrets
+
+  - id: github-token
+    message: "GitHub personal access token hardcoded (ghp_)"
+    languages: [python, javascript, java, ruby, go]
+    severity: ERROR
+    pattern-regex: ghp_[A-Za-z0-9_]{36}
+    metadata:
+      category: secrets
+
+  - id: slack-token
+    message: "Slack token hardcoded (xox-...)"
+    languages: [python, javascript]
+    severity: ERROR
+    pattern-regex: xox[baprs]-[A-Za-z0-9-]+
+    metadata:
+      category: secrets
+
+  - id: private-key-file
+    message: "Private key material detected in source (-----BEGIN PRIVATE KEY-----)"
+    languages: [python, javascript, java, ruby, go]
+    severity: ERROR
+    pattern-regex: -----BEGIN (RSA|DSA|EC|OPENSSH|PRIVATE) KEY-----
+    metadata:
+      category: secrets
+
+  - id: jwt-hardcoded
+    message: "Possível JWT hardcoded (prefixo eyJ...)"
+    languages: [python, javascript]
+    severity: ERROR
+    pattern-regex: eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+
+    metadata:
+      category: secrets
+
   - id: use-of-eval-or-exec
     message: "Uso de eval/exec pode levar à execução arbitrária de código"
     languages: [javascript, python]
@@ -25,6 +72,18 @@ rules:
     pattern-either:
       - pattern: eval($X)
       - pattern: exec($X)
+      - pattern: new Function($ARGS)
+    metadata:
+      category: insecure-coding
+
+  - id: js-dynamic-code
+    message: "Uso de código dinâmico em JS (Function, eval) pode ser perigoso"
+    languages: [javascript]
+    severity: WARNING
+    pattern-either:
+      - pattern: eval($X)
+      - pattern: new Function($ARGS)
+      - pattern-regex: (?i)document\.write\(
     metadata:
       category: insecure-coding
 
@@ -36,5 +95,164 @@ rules:
       - pattern: subprocess.Popen(..., shell=True)
       - pattern: subprocess.call(..., shell=True)
       - pattern: subprocess.run(..., shell=True)
+      - pattern-regex: \b(os\.system|popen|subprocess\.[a-z_]+)\([^)]*%[^)]*\)  # chamadas com interpolação/format
     metadata:
       category: injection
+
+  - id: os-system
+    message: "Uso de os.system é inseguro; prefira APIs seguras sem shell"
+    languages: [python]
+    severity: WARNING
+    pattern: os.system($CMD)
+    metadata:
+      category: insecure-coding
+
+  - id: requests-verify-false
+    message: "requests.* com verify=False desabilita verificação TLS"
+    languages: [python]
+    severity: ERROR
+    pattern-regex: requests\.[a-zA-Z_]+\([^)]*verify\s*=\s*False[^)]*\)
+    metadata:
+      category: insecure-network
+
+  - id: disable-ssl-warnings
+    message: "Desabilitar warnings SSL/usar _create_unverified_context é inseguro"
+    languages: [python]
+    severity: WARNING
+    pattern-either:
+      - pattern: urllib3.disable_warnings()
+      - pattern: ssl._create_unverified_context()
+    metadata:
+      category: insecure-network
+
+  - id: yaml-load
+    message: "yaml.load pode desserializar código arbitrário; use yaml.safe_load"
+    languages: [python]
+    severity: ERROR
+    pattern: yaml.load($X)
+    metadata:
+      category: insecure-deserialization
+
+  - id: pickle-load
+    message: "pickle.load/loads desserializa objetos arbitrários; evita em dados não confiáveis"
+    languages: [python]
+    severity: ERROR
+    pattern-either:
+      - pattern: pickle.load($X)
+      - pattern: pickle.loads($X)
+    metadata:
+      category: insecure-deserialization
+
+  - id: insecure-random-for-secrets
+    message: "Uso de random para gerar segredos; use secrets for cryptographic randomness"
+    languages: [python]
+    severity: WARNING
+    pattern-either:
+      - pattern: random.random()
+      - pattern: random.randrange($X)
+      - pattern: random.choice($X)
+    metadata:
+      category: insecure-crypto
+
+  - id: tempfile-mktemp
+    message: "tempfile.mktemp é inseguro (race conditions). Use mkstemp / TemporaryFile"
+    languages: [python]
+    severity: WARNING
+    pattern: tempfile.mktemp($X)
+    metadata:
+      category: insecure-tempfile
+
+  - id: sql-injection-string-concat
+    message: "Construção dinâmica de SQL via concatenação/f-string pode levar a SQL injection"
+    languages: [python, javascript]
+    severity: ERROR
+    pattern-either:
+      - pattern-regex: (?i)\.\s*execute\(\s*["'].*["']\s*\+\s*\$
+      - pattern-regex: (?i)\bexecute\(\s*f?["'].*\{.+\}.*["']\s*\)
+      - pattern-regex: (?i)\bquery\s*=\s*["'].*\+.*["']
+    metadata:
+      category: injection
+
+  - id: http-basic-auth-hardcoded
+    message: "Credenciais Basic Auth hardcoded ou embutidas em strings"
+    languages: [python, javascript]
+    severity: ERROR
+    pattern-regex: (?i)authorization\s*[:=]\s*["']basic\s+[A-Za-z0-9=+/]+["']
+    metadata:
+      category: secrets
+
+  - id: insecure-hash-md5
+    message: "Uso de MD5 ou hashing fraco detectado"
+    languages: [python, javascript, java]
+    severity: WARNING
+    pattern-regex: (?i)\b(md5|hashlib\.md5|Crypto\.MD5)\b
+    metadata:
+      category: insecure-crypto
+
+  - id: insecure-hash-sha1
+    message: "Uso de SHA1 detectado (considerar SHA256 ou melhor)"
+    languages: [python, javascript, java]
+    severity: WARNING
+    pattern-regex: (?i)\b(sha1|hashlib\.sha1)\b
+    metadata:
+      category: insecure-crypto
+
+  - id: js-innerhtml-assignment
+    message: "Atribuição a innerHTML pode levar a XSS; sanitize antes de inserir"
+    languages: [javascript]
+    severity: ERROR
+    pattern-regex: \.innerHTML\s*=\s*
+    metadata:
+      category: xss
+
+  - id: js-unsafe-dom-insert
+    message: "Uso de insertAdjacentHTML / document.write pode causar XSS"
+    languages: [javascript]
+    severity: ERROR
+    pattern-either:
+      - pattern-regex: (?i)insertAdjacentHTML\s*\(
+      - pattern-regex: (?i)document\.write\s*\(
+    metadata:
+      category: xss
+
+  - id: cors-allow-all
+    message: "CORS configurado para permitir '*' (origem aberta)"
+    languages: [python, javascript, java]
+    severity: WARNING
+    pattern-either:
+      - pattern-regex: (?i)Access-Control-Allow-Origin\s*:\s*\*
+      - pattern-regex: (?i)setHeader\(\s*["']Access-Control-Allow-Origin["']\s*,\s*["']\*["']\s*\)
+    metadata:
+      category: insecure-network
+
+  - id: hardcoded-db-url
+    message: "URL de banco de dados possivelmente hardcoded (contém credenciais)"
+    languages: [python, javascript, java, ruby, go]
+    severity: ERROR
+    pattern-regex: (?i)\b(postgres|mysql|mongodb|redis|mssql)://[^\s'"]{8,}
+    metadata:
+      category: secrets
+
+  - id: flask-debug-true
+    message: "Flask app executando com debug=True em código fonte"
+    languages: [python]
+    severity: ERROR
+    pattern-regex: app\.run\([^)]*debug\s*=\s*True[^)]*\)
+    metadata:
+      category: insecure-config
+
+  - id: env-like-hardcoded-secret
+    message: "Padrão tipo VAR=valor com valor longo — possivelmente segredo em .env ou similar"
+    languages: [python, javascript, ruby, go]
+    severity: ERROR
+    pattern-regex: (?m)^[A-Z0-9_]+=(?:['"])?[A-Za-z0-9\-\._=]{20,}(?:['"])?$
+    metadata:
+      category: secrets
+
+  - id: basic-auth-in-url
+    message: "Credenciais embutidas em URL (user:pass@host) — evita expor credenciais em URLs"
+    languages: [python, javascript, java]
+    severity: ERROR
+    pattern-regex: (?i)://[^/\s:@]+:[^/\s:@]+@[^/\s]+
+    metadata:
+      category: secrets
