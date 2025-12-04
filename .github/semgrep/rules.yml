@@ -1,0 +1,40 @@
+# Como executar a pipeline:
+# 1) No GitHub (automático): commit + push para 'main' ou abra um PR contra 'main'
+#    Ex: git add . && git commit -m "teste semgrep" && git push origin sua-branch
+# 2) Executar localmente (rápido para debug):
+#    python -m pip install --upgrade pip
+#    pip install semgrep
+#    semgrep --config .github/semgrep/rules.yml --json --output semgrep-report.json .
+#    # abrir/inspecionar semgrep-report.json ou usar semgrep --config .github/semgrep/rules.yml .
+# 3) Ver resultados no GitHub: Repositório -> Actions -> semgrep-scan -> selecionar run -> Artifacts -> semgrep-report
+# 4) Para execução manual via GitHub UI, adicione `workflow_dispatch:` ao arquivo .github/workflows/pipeline.yaml
+
+rules:
+  - id: hardcoded-password
+    message: "Hardcoded password detected (potencial credencial embutida)"
+    languages: [python, javascript, java, php]
+    severity: ERROR
+    pattern-regex: (?i)password\s*[:=]\s*["'].*["']
+    metadata:
+      category: secrets
+
+  - id: use-of-eval-or-exec
+    message: "Uso de eval/exec pode levar à execução arbitrária de código"
+    languages: [javascript, python]
+    severity: WARNING
+    pattern-either:
+      - pattern: eval($X)
+      - pattern: exec($X)
+    metadata:
+      category: insecure-coding
+
+  - id: subprocess-shell-true
+    message: "Chamada a subprocessos com shell=True pode permitir injeção de comandos"
+    languages: [python]
+    severity: WARNING
+    patterns:
+      - pattern: subprocess.Popen(..., shell=True)
+      - pattern: subprocess.call(..., shell=True)
+      - pattern: subprocess.run(..., shell=True)
+    metadata:
+      category: injection

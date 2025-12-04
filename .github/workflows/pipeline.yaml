@@ -1,0 +1,47 @@
+name: semgrep-scan
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  semgrep:
+    name: Semgrep vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install semgrep
+        run: python -m pip install --upgrade pip && pip install semgrep
+
+      - name: Run semgrep with local rules
+        run: semgrep --config .github/semgrep/rules.yml --json --output semgrep-report.json
+
+      - name: Fail if semgrep found issues
+        run: |
+          python - <<'PY'
+          import json, sys
+          try:
+            r = json.load(open("semgrep-report.json"))
+            if r.get("results"):
+              print(f"Semgrep found {len(r['results'])} issues")
+              sys.exit(1)
+            print("No semgrep findings")
+          except Exception as e:
+            print("Failed to parse semgrep output:", e)
+            sys.exit(2)
+          PY
+
+      - name: Upload semgrep report
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: semgrep-report.json
