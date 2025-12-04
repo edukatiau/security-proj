@@ -256,3 +256,276 @@ rules:
     pattern-regex: (?i)://[^/\s:@]+:[^/\s:@]+@[^/\s]+
     metadata:
       category: secrets
+
+  - id: mysql-credentials-hardcoded
+    message: "MySQL credentials hardcoded in source (user/password in code)"
+    languages: [python, javascript, php, java, go]
+    severity: ERROR
+    pattern-regex: (?i)(mysql|mariadb).*(user|username|uid|passwd|password)\s*[:=]\s*["']?[A-Za-z0-9@#\-\._]{4,}["']?
+    metadata:
+      category: secrets
+
+  - id: mysql-connector-password-in-call
+    message: "Senha passada diretamente para mysql connect (hardcoded or inline variable)"
+    languages: [python, javascript, php]
+    severity: ERROR
+    pattern-either:
+      - pattern: mysql.connector.connect(user=$U, password=$P, host=$H, ...)
+      - pattern: pymysql.connect(user=$U, password=$P, host=$H, ...)
+      - pattern: mysql.createConnection({user: $U, password: $P, host: $H})
+      - pattern: new mysqli($H, $U, $P, $DB)
+    metadata:
+      category: insecure-config
+
+  - id: mysql-connection-string-credentials
+    message: "Connection string contains credentials (mysql://user:pass@host)"
+    languages: [python, javascript, php, java, go]
+    severity: ERROR
+    pattern-regex: (?i)\bmysql:\/\/[^\/\s:]+:[^\/\s@]+@[^\/\s]+
+    metadata:
+      category: secrets
+
+  - id: mysql-default-port
+    message: "MySQL default port 3306 found in connection — check exposure and firewall"
+    languages: [python, javascript, php, java, go]
+    severity: WARNING
+    pattern-regex: (?i)(:\s*3306\b|\bport\s*[:=]\s*3306\b)
+    metadata:
+      category: insecure-network
+
+  - id: mysql-root-user
+    message: "Uso do usuário 'root' em conexão com banco — evite privilégios excessivos"
+    languages: [python, javascript, php, java, go]
+    severity: WARNING
+    pattern-regex: (?i)(user|username|uid)\s*[:=]\s*['"]?root['"]?
+    metadata:
+      category: insecure-privileges
+
+  - id: mysql-disable-ssl
+    message: "Conexão MySQL configurada sem TLS/SSL (insecure, dados sensíveis podem vazar)"
+    languages: [python, javascript, php]
+    severity: ERROR
+    pattern-either:
+      - pattern-regex: (?i)mysql.*connect\([^)]*ssl.*=\s*(False|null|0)[^)]*\)
+      - pattern-regex: (?i)mysql.*connect\([^)]*ssl_disabled[^)]*\)
+      - pattern-regex: (?i)ssl_mode\s*=\s*['\"]?DISABLED['\"]?
+    metadata:
+      category: insecure-network
+
+  - id: mysql-bind-address-open
+    message: "my.cnf/my.ini bind-address configured as 0.0.0.0 — banco exposto publicamente"
+    languages: [yaml, ini, toml, text]
+    severity: ERROR
+    pattern-regex: (?m)^\s*bind-address\s*=\s*0\.0\.0\.0\s*$
+    metadata:
+      category: insecure-network
+
+  - id: mysql-command-shell-interpolation
+    message: "Uso do cliente mysql via shell com interpolação — possível command injection / leaked credentials"
+    languages: [python, javascript, bash]
+    severity: ERROR
+    pattern-regex: (?i)mysql\s+(-u\s*\$?\w+|\-\-user=)[^\n]*(-p[^\s]*)?.*(\`|\$|\+|\{).*\)
+    metadata:
+      category: injection
+
+  - id: mysql-query-string-concat
+    message: "Query MySQL construída via concatenação / f-string / format / % — risco de SQL injection"
+    languages: [python, javascript, php, java]
+    severity: ERROR
+    pattern-either:
+      - pattern-regex: (?i)\bexecute\(\s*f?["'].*\{.+\}.*["']\s*[,\)]
+      - pattern-regex: (?i)\bexecute\(\s*["'][^"']*%[^"']*["']\s*[,\)]
+      - pattern-regex: (?i)\bquery\s*=\s*["'].*["']\s*\+\s*[^;\n]+
+      - pattern-regex: (?i)\bexecute\(\s*["'][^"']*"\s*%\s*[^,\)]+
+      - pattern-regex: (?i)\bclient\.query\(\s*`.*\${.+}.*`\s*[,\)]
+      - pattern-regex: (?i)\bsequelize\.query\(\s*`.*\${.+}.*`\s*[,\)]
+    metadata:
+      category: injection
+
+  - id: mysql-cursor-exec-format-percent
+    message: "Uso de operador % para injetar parâmetros em query (evitar, use parâmetros do driver)"
+    languages: [python]
+    severity: ERROR
+    pattern-regex: (?i)\bexecute\(\s*["'][^"']*%[^"']*["']\s*\)
+    metadata:
+      category: injection
+
+  - id: mysql-exec-format-method
+    message: "Uso de str.format para montar queries (uso inseguro)"
+    languages: [python, javascript, java]
+    severity: ERROR
+    pattern-regex: (?i)(format\(|\.format\()  # detecta uso de format embutido em strings para queries
+    metadata:
+      category: injection
+
+  - id: mysql-raw-sql-orm
+    message: "Uso de raw SQL em ORM com parâmetros interpolados — risco de SQLi"
+    languages: [python, javascript, php]
+    severity: ERROR
+    pattern-either:
+      - pattern-regex: (?i)\braw\([^,]*%[^)]*\)
+      - pattern-regex: (?i)\bModel\.raw\([^,]*\{.+\}[^)]*\)
+      - pattern-regex: (?i)\bsequelize\.query\(\s*["'`].*["'`]\s*\+\s*[^,)\n]+
+    metadata:
+      category: injection
+
+  - id: mysql-dangerous-sql-ops
+    message: "Operações destrutivas (DROP/TRUNCATE/GRANT/DELETE sem WHERE) detectadas em strings — reveja uso e privilégio"
+    languages: [python, javascript, php, java, sql]
+    severity: ERROR
+    pattern-regex: (?i)\b(DROP\s+TABLE|TRUNCATE\s+TABLE|GRANT\s+ALL|DELETE\s+FROM\s+\w+\s*(;|\n|$))\b
+    metadata:
+      category: dangerous-sql
+
+  - id: mysql-delete-no-where
+    message: "DELETE sem cláusula WHERE detectado (potencial remoção em massa)"
+    languages: [python, javascript, php, java, sql]
+    severity: ERROR
+    pattern-regex: (?i)\bDELETE\s+FROM\s+\w+\s*;?
+    metadata:
+      category: dangerous-sql
+
+  - id: mysql-privilege-escalation-sql
+    message: "GRANT ALL / GRANT ... WITH GRANT OPTION encontrado — verifique necessidade e contexto"
+    languages: [sql, python, javascript]
+    severity: WARNING
+    pattern-regex: (?i)\bGRANT\s+ALL\s+PRIVILEGES\b|\bWITH\s+GRANT\s+OPTION\b
+    metadata:
+      category: insecure-privileges
+
+  - id: mysql-unparameterized-in-js
+    message: "Uso de concatenação de strings para queries em Node.js (mysql/mysql2) — use placeholders/params"
+    languages: [javascript]
+    severity: ERROR
+    pattern-either:
+      - pattern-regex: (?i)\bconnection\.query\(\s*["'`].*["'`]\s*\+\s*[^,)\n]+
+      - pattern-regex: (?i)\bpool\.query\(\s*`.*\$\{.+\}.*`\s*,?
+    metadata:
+      category: injection
+
+  - id: mysql-dump-or-shell-password-arg
+    message: "Comando mysqldump/mysql usando senha em linha de comando (-pPASSWORD) — credenciais expostas no histórico/proc"
+    languages: [bash, text, python]
+    severity: ERROR
+    pattern-regex: (?i)\b(mysqldump|mysql)\b[^\\n]*-p[^ \t\n]
+    metadata:
+      category: secrets
+
+  - id: mysql-log-sensitive-data
+    message: "Possível log de queries/params contendo dados sensíveis (ex.: password/token in log)"
+    languages: [python, javascript, java, php]
+    severity: WARNING
+    pattern-regex: (?i)\b(log|logger)\.info\([^)]*(password|passwd|token|secret)[^)]*\)
+    metadata:
+      category: secrets
+
+  - id: mysql-empty-password
+    message: "Conexão MySQL configurada com senha vazia ou variável vazia — risco de segurança"
+    languages: [python, javascript, php, java]
+    severity: WARNING
+    pattern-regex: (?i)(password\s*[:=]\s*["']?["']|password\s*[:=]\s*None|passwd\s*[:=]\s*["']?["']?)
+    metadata:
+      category: insecure-config
+
+  - id: mysql-insecure-grant-revoked
+    message: "Regras de GRANT amplas detectadas; revise privilégios mínimos"
+    languages: [sql, text]
+    severity: WARNING
+    pattern-regex: (?i)\bGRANT\s+.*ON\s+\*\.\*\s+TO\b
+    metadata:
+      category: insecure-privileges
+
+  - id: mysql-unescaped-like
+    message: "Uso de LIKE com concatenação de parâmetros pode levar a injeção"
+    languages: [python, javascript, php]
+    severity: WARNING
+    pattern-regex: (?i)LIKE\s+["']%.*%["']\s*\+|\bLIKE\s+f?["'].*\{.+\}.*["']
+    metadata:
+      category: injection
+
+  - id: mysql-check-bind-address-file
+    message: "Verifique arquivos de configuração (my.cnf/my.ini) que expõem bind-address/skip-networking inadequados"
+    languages: [text, ini, conf]
+    severity: WARNING
+    pattern-either:
+      - pattern-regex: (?m)^\s*skip-networking\s*=\s*0\s*$
+      - pattern-regex: (?m)^\s*bind-address\s*=\s*0\.0\.0\.0\s*$
+    metadata:
+      category: insecure-network
+
+  - id: nest-cors-allow-all
+    message: "CORS configurado para permitir todas as origens em Nest (origin: '*' ou origin: true)"
+    languages: [javascript, typescript]
+    severity: WARNING
+    pattern-regex: (?i)enableCors\([^)]*(origin\s*[:=]\s*(true|\*)|origin\s*:\s*\[\s*['\"]\*\s*['\"]\s*\))
+    metadata:
+      category: insecure-network
+
+  - id: nest-jwt-secret-hardcoded
+    message: "JwtModule.register/forRoot com secret hardcoded — mova para env/config seguro"
+    languages: [javascript, typescript]
+    severity: ERROR
+    pattern-regex: (?s)JwtModule\.(register|registerAsync|forRoot)\([^)]*secret\s*:\s*['\"][^'\"]{4,}['\"][^)]*\)
+    metadata:
+      category: secrets
+
+  - id: nest-logger-logging-secrets
+    message: "Possível log de segredos em Nest (console/Logger.log contendo password/token/secret)"
+    languages: [javascript, typescript]
+    severity: WARNING
+    pattern-regex: (?i)\b(console|this\.logger|Logger)\.(log|debug|error|warn)\([^)]*(password|passwd|token|secret|api[_-]?key)[^)]*\)
+    metadata:
+      category: secrets
+
+  - id: nest-validationpipe-no-whitelist
+    message: "ValidationPipe sem whitelist/transform pode permitir propriedades indesejadas; configure ValidationPipe({ whitelist: true, transform: true })"
+    languages: [javascript, typescript]
+    severity: WARNING
+    pattern-regex: (?s)new\s+ValidationPipe\([^)]*(whitelist\s*:\s*(false|0)|transform\s*:\s*(false|0))[^)]*\)
+    metadata:
+      category: insecure-config
+
+  - id: typeorm-template-strings-raw-query
+    message: "Query com template string/interpolação usada em TypeORM/raw queries — risco de SQL injection"
+    languages: [javascript, typescript]
+    severity: ERROR
+    pattern-either:
+      - pattern-regex: (?i)\bquery\(\s*`[^`]*\$\{[^}]+\}[^`]*`\s*,?
+      - pattern-regex: (?i)\bcreateQueryBuilder\([^)]*\)\.[\s\S]*\bwhere\(\s*`[^`]*\$\{[^}]+\}[^`]*`\s*
+      - pattern-regex: (?i)\bgetRepository\([^)]*\)\.query\(\s*`[^`]*\$\{[^}]+\}[^`]*`\s*\)
+    metadata:
+      category: injection
+
+  - id: typeorm-string-concat-query
+    message: "Query construída por concatenação (\"+\" / template) passada ao driver/ORM — use parâmetros/placeholder"
+    languages: [javascript, typescript]
+    severity: ERROR
+    pattern-either:
+      - pattern-regex: (?i)\b(query|execute)\(\s*["'`][^"'`]*["'`]\s*\+\s*[^,)\n]+
+      - pattern-regex: (?i)\bwhere\(\s*["'`][^"'`]*["'`]\s*\+\s*[^,)\n]+
+    metadata:
+      category: injection
+
+  - id: nest-eval-or-newfunction-ts
+    message: "Uso de eval/new Function em TypeScript pode levar à execução arbitrária"
+    languages: [javascript, typescript]
+    severity: WARNING
+    pattern-either:
+      - pattern: eval($X)
+      - pattern: new Function($ARGS)
+    metadata:
+      category: insecure-coding
+
+  - id: nest-session-cookie-insecure
+    message: "Configuração de cookie/session potencialmente insegura (secure:false or sameSite lax/none sem https) em Nest/Express"
+    languages: [javascript, typescript]
+    severity: WARNING
+    pattern-regex: (?i)(cookieParser|session\(|app\.use\([^)]*session)[^)]*(secure\s*:\s*false|sameSite\s*:\s*['\"]?(none|lax)['\"]?) 
+    metadata:
+      category: insecure-config
+
+  - id: nest-db-credentials-in-config-service
+    message: "Credenciais MySQL/Postgres encontradas em ConfigService/ConfigModule como string/valor — prefira variáveis de ambiente seguras"
+    languages: [javascript, typescript]
+    severity: ERROR
+    pattern-regex: (?i)(ConfigService|configService|process\.env)\.[A-Z0-9_]*\s*[:=]\s*['\"][A-Za
