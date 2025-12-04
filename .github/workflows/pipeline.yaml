@@ -2,9 +2,9 @@ name: semgrep-scan
 
 on:
   push:
-    branches: [ main ]
+    branches: [ edu ]
   pull_request:
-    branches: [ main ]
+    branches: [ edu ]
 
 jobs:
   semgrep:
